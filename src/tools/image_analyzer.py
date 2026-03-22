@@ -59,6 +59,11 @@ class AnalysisResult:
     # EXIF数据
     exif: Optional[Dict[str, Any]] = None
     
+    # ISP模块分析
+    gamma_analysis: Optional[Dict[str, Any]] = None
+    edge_enhancement: Optional[Dict[str, Any]] = None
+    ltm_analysis: Optional[Dict[str, Any]] = None
+    
     # 拍摄信息
     capture_time: Optional[str] = None
     camera_model: Optional[str] = None
@@ -158,6 +163,27 @@ class ImageAnalyzer:
             except Exception as e:
                 logger.warning(f"EXIF解析失败: {e}")
                 result.exif = None
+            
+            # 10. Gamma分析
+            try:
+                result.gamma_analysis = self._analyze_gamma(img)
+            except Exception as e:
+                logger.warning(f"Gamma分析失败: {e}")
+                result.gamma_analysis = None
+            
+            # 11. 边缘增强分析
+            try:
+                result.edge_enhancement = self._analyze_edge_enhancement(img)
+            except Exception as e:
+                logger.warning(f"边缘增强分析失败: {e}")
+                result.edge_enhancement = None
+            
+            # 12. 局部色调映射分析
+            try:
+                result.ltm_analysis = self._analyze_ltm(img)
+            except Exception as e:
+                logger.warning(f"LTM分析失败: {e}")
+                result.ltm_analysis = None
             
             logger.info(f"图像分析完成: {result.width}x{result.height}")
             return result
@@ -329,6 +355,96 @@ class ImageAnalyzer:
             'max_channel': max_channel,
             'min_channel': min_channel
         }
+    
+    def _analyze_gamma(self, img: np.ndarray) -> Dict[str, Any]:
+        """分析Gamma校正特性"""
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+            hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
+            hist = hist / hist.sum()
+            cdf = np.cumsum(hist)
+            mid_idx = np.searchsorted(cdf, 0.5)
+            mid_level = mid_idx / 255.0
+            
+            estimated_gamma = 2.2
+            if mid_level < 0.4:
+                estimated_gamma = 2.0
+            elif mid_level > 0.6:
+                estimated_gamma = 2.4
+            
+            brightness = "正常" if 0.4 <= mid_level <= 0.6 else ("偏暗" if mid_level < 0.4 else "偏亮")
+            
+            return {
+                'estimated_gamma': round(estimated_gamma, 2),
+                'mid_tone_level': round(mid_level, 3),
+                'brightness_assessment': brightness,
+                'note': 'Gamma值影响图像整体亮度曲线'
+            }
+        except Exception as e:
+            return {'error': str(e)}
+    
+    def _analyze_edge_enhancement(self, img: np.ndarray) -> Dict[str, Any]:
+        """分析边缘增强(EE)效果"""
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+            
+            laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+            edge_strength = float(laplacian.var())
+            
+            sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+            sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+            sobel_mean = float(np.sqrt(sobelx**2 + sobely**2).mean())
+            
+            if edge_strength < 100:
+                assessment, sharpness = "较弱", "偏低"
+            elif edge_strength < 500:
+                assessment, sharpness = "适中", "良好"
+            else:
+                assessment, sharpness = "较强", "过高(可能过锐化)"
+            
+            return {
+                'edge_strength': round(edge_strength, 2),
+                'sobel_mean': round(sobel_mean, 2),
+                'edge_assessment': assessment,
+                'sharpness': sharpness,
+                'recommendation': '建议调整锐化强度' if edge_strength > 500 else '边缘增强适中'
+            }
+        except Exception as e:
+            return {'error': str(e)}
+    
+    def _analyze_ltm(self, img: np.ndarray) -> Dict[str, Any]:
+        """分析局部色调映射(LTM)效果"""
+        try:
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB) if len(img.shape) == 3 else img
+            l_channel = lab[:, :, 0] if len(img.shape) == 3 else img
+            
+            contrasts = []
+            for k in [5, 15, 25]:
+                mean = cv2.blur(l_channel.astype(np.float32), (k, k))
+                sqr_mean = cv2.blur((l_channel.astype(np.float32))**2, (k, k))
+                std = float(np.sqrt(np.maximum(sqr_mean - mean**2, 0)).mean())
+                contrasts.append(std)
+            
+            global_range = int(l_channel.max() - l_channel.min())
+            ratio = contrasts[0] / (global_range / 255 + 1e-6)
+            
+            if ratio > 0.5:
+                assessment, note = "良好", "局部对比度保持较好"
+            elif ratio > 0.3:
+                assessment, note = "一般", "动态范围压缩较明显"
+            else:
+                assessment, note = "较弱", "可能存在细节丢失"
+            
+            return {
+                'local_contrast_5x5': round(contrasts[0], 2),
+                'local_contrast_15x15': round(contrasts[1], 2),
+                'local_contrast_25x25': round(contrasts[2], 2),
+                'global_range': global_range,
+                'ltm_assessment': assessment,
+                'note': note
+            }
+        except Exception as e:
+            return {'error': str(e)}
     
     def _parse_exif(self, image_path: str) -> Optional[Dict[str, Any]]:
         """解析EXIF数据"""
