@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import numpy as np
+import cv2
 
 # 添加src目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -294,6 +295,80 @@ class TestImageAnalyzerProcess(unittest.TestCase):
         result = analyzer.process(str(self.test_image), 'color', {'temperature': 10})
         
         self.assertIn('色彩调整完成', result)
+
+
+class TestISPModules(unittest.TestCase):
+    """ISP模块测试"""
+    
+    def setUp(self):
+        self.test_image = Path(__file__).parent.parent / 'test_image.jpg'
+        self.analyzer = ImageAnalyzer()
+    
+    def test_gamma_analysis(self):
+        """测试Gamma分析"""
+        if not self.test_image.exists():
+            self.skipTest("测试图像不存在")
+        
+        analyzer = ImageAnalyzer()
+        img = cv2.imread(str(self.test_image))
+        
+        result = analyzer._analyze_gamma(img)
+        
+        self.assertIn('estimated_gamma', result)
+        self.assertIn('mid_tone_level', result)
+        self.assertIn('brightness_assessment', result)
+        self.assertIsInstance(result['estimated_gamma'], float)
+        self.assertTrue(0.5 <= result['estimated_gamma'] <= 4.0)
+    
+    def test_edge_enhancement(self):
+        """测试边缘增强分析"""
+        if not self.test_image.exists():
+            self.skipTest("测试图像不存在")
+        
+        analyzer = ImageAnalyzer()
+        img = cv2.imread(str(self.test_image))
+        
+        result = analyzer._analyze_edge_enhancement(img)
+        
+        self.assertIn('edge_strength', result)
+        self.assertIn('edge_assessment', result)
+        self.assertIn('sharpness', result)
+        self.assertIn('recommendation', result)
+        self.assertIsInstance(result['edge_strength'], float)
+    
+    def test_ltm_analysis(self):
+        """测试局部色调映射分析"""
+        if not self.test_image.exists():
+            self.skipTest("测试图像不存在")
+        
+        analyzer = ImageAnalyzer()
+        img = cv2.imread(str(self.test_image))
+        
+        result = analyzer._analyze_ltm(img)
+        
+        self.assertIn('local_contrast_5x5', result)
+        self.assertIn('ltm_assessment', result)
+        self.assertIn('global_range', result)
+        self.assertIn('note', result)
+        self.assertIsInstance(result['local_contrast_5x5'], float)
+    
+    def test_full_analysis_with_isp_modules(self):
+        """测试完整分析包含ISP模块"""
+        if not self.test_image.exists():
+            self.skipTest("测试图像不存在")
+        
+        analyzer = ImageAnalyzer()
+        result = analyzer.analyze(str(self.test_image))
+        
+        # 验证ISP模块字段存在
+        self.assertIsNotNone(result.gamma_analysis)
+        self.assertIsNotNone(result.edge_enhancement)
+        self.assertIsNotNone(result.ltm_analysis)
+        
+        # 验证数据结构
+        self.assertIn('estimated_gamma', result.gamma_analysis)
+        self.assertIn('edge_strength', result.edge_enhancement)
+        self.assertIn('local_contrast_5x5', result.ltm_analysis)
 
 
 def run_tests():
