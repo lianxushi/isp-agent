@@ -10,11 +10,20 @@ numpy>=1.24.0
 pillow>=10.0.0
 rawpy>=0.18.0
 exifread>=3.0.0
+scipy>=1.11.0
 
 # Video Processing
 moviepy>=1.0.3
+
+# Web API
+flask>=3.0.0
+flask-cors>=4.0.0
 
 # Utilities
 python-magic>=0.4.27
 tqdm>=4.65.0
 colorlog>=4.8.0
+
+# Testing (optional)
+pytest>=7.4.0
+pytest-cov>=4.1.0

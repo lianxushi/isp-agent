@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  isp-agent:
+    build: .
+    image: isp-agent:latest
+    container_name: isp-agent
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./test_data:/app/test_data
+    environment:
+      - FLASK_ENV=development
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    
+  # CLI版本(不使用端口)
+  isp-agent-cli:
+    build: .
+    image: isp-agent:latest
+    container_name: isp-agent-cli
+    volumes:
+      - ./inputs:/app/inputs
+      - ./outputs:/app/outputs
+    command: python -m src.cli_enhanced --help
+    profiles:
+      - cli
