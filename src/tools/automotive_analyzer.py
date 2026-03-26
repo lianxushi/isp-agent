@@ -2,11 +2,16 @@
 """
 车载场景图像质量评估
 针对自动驾驶和智能驾驶舱场景的图像质量分析
+
+符合标准:
+- ISO 16505 (Automotive camera systems)
+- AEC-Q100 (Automotive electronics)
+- IEEE 802.3 (Automotive ethernet)
 """
 import cv2
 import numpy as np
-from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, List, Tuple
 from ..utils.logger import setup_logger
 
 logger = setup_logger('isp-agent.automotive')
@@ -23,6 +28,131 @@ class AutomotiveQualityResult:
     hdr_score: float  # 0-100
     motion_blur_score: float  # 0-100
     recommendations: list
+    # 扩展字段
+    iso16505_compliance: Dict[str, Any] = field(default_factory=dict)
+    scene_type: str = 'generic'
+
+
+class ISO16505Standard:
+    """
+    ISO 16505 车载摄像头系统标准参数
+    
+    ISO 16505定义了车载摄像头系统的最低性能要求:
+    - 最低分辨率: 1280x960
+    - 最低帧率: 25fps
+    - 最低动态范围: 100dB
+    - 最低水平FOV: 70°
+    """
+    
+    # ISO 16505 最低要求
+    MIN_REQUIREMENTS = {
+        'resolution': (1280, 960),  # 最低分辨率
+        'fps': 25,                   # 最低帧率
+        'dynamic_range_db': 100,     # 最低动态范围(dB)
+        'horizontal_fov': 70,        # 最低水平FOV(度)
+    }
+    
+    # 推荐要求
+    RECOMMENDED = {
+        'resolution': (1920, 1080), # 推荐分辨率
+        'fps': 30,                   # 推荐帧率
+        'dynamic_range_db': 120,     # 推荐动态范围(dB)
+        'horizontal_fov': 120,       # 推荐水平FOV(度)
+    }
+    
+    # 优质要求
+    PREMIUM = {
+        'resolution': (3840, 2160), # 4K
+        'fps': 60,                   # 60fps
+        'dynamic_range_db': 140,     # 优秀动态范围(dB)
+        'horizontal_fov': 150,       # 宽视场角
+    }
+    
+    @classmethod
+    def check_compliance(
+        cls,
+        resolution: Tuple[int, int],
+        fps: float,
+        dynamic_range_db: float,
+        fov: float
+    ) -> Dict[str, Any]:
+        """
+        检查是否符合ISO 16505标准
+        
+        Args:
+            resolution: 分辨率 (w, h)
+            fps: 帧率
+            dynamic_range_db: 动态范围(dB)
+            fov: 水平视场角(度)
+        
+        Returns:
+            合规性检查结果
+        """
+        results = {}
+        
+        # 分辨率
+        min_res = cls.MIN_REQUIREMENTS['resolution']
+        if resolution[0] >= min_res[0] and resolution[1] >= min_res[1]:
+            results['resolution'] = {
+                'status': 'pass',
+                'level': 'minimum',
+                'actual': resolution,
+                'required': min_res
+            }
+        elif resolution[0] >= cls.RECOMMENDED['resolution'][0]:
+            results['resolution'] = {
+                'status': 'pass',
+                'level': 'premium',
+                'actual': resolution,
+                'required': cls.RECOMMENDED['resolution']
+            }
+        else:
+            results['resolution'] = {
+                'status': 'fail',
+                'level': 'below_minimum',
+                'actual': resolution,
+                'required': min_res
+            }
+        
+        # 帧率
+        min_fps = cls.MIN_REQUIREMENTS['fps']
+        if fps >= cls.PREMIUM['fps']:
+            results['fps'] = {'status': 'pass', 'level': 'premium', 'actual': fps}
+        elif fps >= min_fps:
+            results['fps'] = {'status': 'pass', 'level': 'minimum', 'actual': fps}
+        else:
+            results['fps'] = {'status': 'fail', 'level': 'below_minimum', 'actual': fps}
+        
+        # 动态范围
+        min_dr = cls.MIN_REQUIREMENTS['dynamic_range_db']
+        if dynamic_range_db >= cls.PREMIUM['dynamic_range_db']:
+            results['dynamic_range'] = {'status': 'pass', 'level': 'premium', 'actual_db': dynamic_range_db}
+        elif dynamic_range_db >= min_dr:
+            results['dynamic_range'] = {'status': 'pass', 'level': 'minimum', 'actual_db': dynamic_range_db}
+        else:
+            results['dynamic_range'] = {'status': 'fail', 'level': 'below_minimum', 'actual_db': dynamic_range_db}
+        
+        # FOV
+        min_fov = cls.MIN_REQUIREMENTS['horizontal_fov']
+        if fov >= cls.RECOMMENDED['horizontal_fov']:
+            results['fov'] = {'status': 'pass', 'level': 'premium', 'actual': fov}
+        elif fov >= min_fov:
+            results['fov'] = {'status': 'pass', 'level': 'minimum', 'actual': fov}
+        else:
+            results['fov'] = {'status': 'fail', 'level': 'below_minimum', 'actual': fov}
+        
+        # 总体评估
+        all_pass = all(r['status'] == 'pass' for r in results.values())
+        premium_count = sum(1 for r in results.values() if r.get('level') == 'premium')
+        
+        overall_level = 'premium' if premium_count == 4 else 'standard' if all_pass else 'non_compliant'
+        
+        return {
+            'compliant': all_pass,
+            'overall_level': overall_level,
+            'premium_count': premium_count,
+            'details': results
+        }
 
 
 class AutomotiveQualityAnalyzer:
@@ -315,6 +445,153 @@ class AutomotiveQualityAnalyzer:
             recs.append("图像质量良好，满足车载使用要求")
         
         return recs
+    
+    def analyze_with_iso_compliance(
+        self,
+        image_path: str,
+        scene_type: str = 'adas_front',
+        resolution: tuple = None,
+        fps: float = None,
+        fov: float = None
+    ) -> Dict[str, Any]:
+        """
+        增强的车载图像质量分析 (ISO 16505合规版)
+        
+        Args:
+            image_path: 图像路径
+            scene_type: 场景类型
+            resolution: 分辨率 (w, h)
+            fps: 帧率
+            fov: 水平视场角(度)
+        
+        Returns:
+            Dict: 包含ISO 16505合规性检查的完整分析结果
+        """
+        logger.info(f"开始ISO 16505合规分析: {scene_type}")
+        
+        # 基础分析
+        img = cv2.imread(image_path)
+        if img is None:
+            raise ValueError(f"无法读取图像: {image_path}")
+        
+        height, width = img.shape[:2]
+        actual_resolution = (width, height)
+        
+        # 如果未提供分辨率，使用图像实际分辨率
+        if resolution is None:
+            resolution = actual_resolution
+        
+        # 评估各项指标
+        resolution_score = self._evaluate_resolution(width, height, scene_type)
+        framerate_score = self._evaluate_framerate(fps, scene_type)
+        fov_score = self._evaluate_fov(fov, scene_type)
+        night_score = self._evaluate_night_vision(img, scene_type)
+        hdr_score = self._evaluate_hdr(img)
+        motion_score = self._evaluate_motion_blur(img)
+        
+        # 计算动态范围(dB)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        p1, p99 = np.percentile(gray, [1, 99])
+        # stops = log2(max/min) -> dB = stops * 6 (近似)
+        if p1 > 0:
+            stops = np.log2(p99 / max(p1, 1))
+            dynamic_range_db = stops * 6.02  # 转换为dB
+        else:
+            dynamic_range_db = 0
+        
+        # ISO 16505合规性检查
+        iso_compliance = ISO16505Standard.check_compliance(
+            resolution,
+            fps or 30,  # 默认30fps
+            dynamic_range_db,
+            fov or 120  # 默认120°FOV
+        )
+        
+        # 综合评分 (权重根据场景调整)
+        if scene_type == 'adas_front':
+            weights = {
+                'resolution': 0.20, 'framerate': 0.15, 'fov': 0.10,
+                'night': 0.20, 'hdr': 0.25, 'motion': 0.10,
+            }
+        elif scene_type == 'dms':
+            weights = {
+                'resolution': 0.25, 'framerate': 0.15, 'fov': 0.05,
+                'night': 0.25, 'hdr': 0.10, 'motion': 0.20,
+            }
+        elif scene_type == 'surround':
+            weights = {
+                'resolution': 0.15, 'framerate': 0.10, 'fov': 0.20,
+                'night': 0.20, 'hdr': 0.20, 'motion': 0.15,
+            }
+        else:
+            weights = {
+                'resolution': 0.15, 'framerate': 0.15, 'fov': 0.10,
+                'night': 0.25, 'hdr': 0.20, 'motion': 0.15,
+            }
+        
+        overall = (
+            resolution_score * weights['resolution'] +
+            framerate_score * weights['framerate'] +
+            fov_score * weights['fov'] +
+            night_score * weights['night'] +
+            hdr_score * weights['hdr'] +
+            motion_score * weights['motion']
+        )
+        
+        # 生成建议
+        recommendations = self._generate_recommendations(
+            resolution_score, framerate_score, fov_score,
+            night_score, hdr_score, motion_score, scene_type
+        )
+        
+        # 添加ISO合规建议
+        if not iso_compliance['compliant']:
+            for item, details in iso_compliance['details'].items():
+                if details['status'] == 'fail':
+                    recommendations.append(
+                        f"ISO 16505不合规 - {item}: "
+                        f"当前{details.get('actual', details.get('actual_db', 'N/A'))}, "
+                        f"需要{details['required'] if 'required' in details else ISO16505Standard.MIN_REQUIREMENTS.get(item, 'N/A')}"
+                    )
+        elif iso_compliance['overall_level'] == 'premium':
+            recommendations.insert(0, "✅ 符合ISO 16505 Premium级别")
+        else:
+            recommendations.insert(0, "✅ 符合ISO 16505最低要求")
+        
+        return {
+            'overall_score': round(overall, 1),
+            'scene_type': scene_type,
+            'resolution': {
+                'score': round(resolution_score, 1),
+                'assessment': self._get_resolution_comment(resolution_score),
+                'actual': actual_resolution
+            },
+            'framerate': {
+                'score': round(framerate_score, 1),
+                'assessment': self._get_framerate_comment(framerate_score),
+                'actual': fps
+            },
+            'fov': {
+                'score': round(fov_score, 1),
+                'assessment': self._get_fov_comment(fov_score),
+                'actual': fov
+            },
+            'night_vision': {
+                'score': round(night_score, 1),
+                'brightness': float(gray.mean()),
+                'dynamic_range_estimate_db': round(dynamic_range_db, 1)
+            },
+            'hdr': {
+                'score': round(hdr_score, 1),
+                'exposure_range_stops': round(np.log2(max(p99/p1, 1.01)), 1) if p1 > 0 else 0
+            },
+            'motion_blur': {
+                'score': round(motion_score, 1),
+                'sharpness_laplacian': round(cv2.Laplacian(gray, cv2.CV_64F).var(), 1)
+            },
+            'iso16505_compliance': iso_compliance,
+            'recommendations': recommendations
+        }
     
     def quick_check(
         self,

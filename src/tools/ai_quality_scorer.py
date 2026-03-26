@@ -2,6 +2,11 @@
 """
 AI图像质量评分
 基于深度学习的客观质量评估 (BRISQUE/NIQE风格)
+
+集成:
+- BRISQUE特征的无参考质量评估
+- 传统启发式质量维度评分
+- 综合MOS预测
 """
 import cv2
 import numpy as np
@@ -10,6 +15,23 @@ from pathlib import Path
 from ..utils.logger import setup_logger
 
 logger = setup_logger('isp-agent.ai_quality')
+
+
+# 延迟导入BRISQUE，避免循环依赖
+_brisque = None
+
+
+def _get_brisque():
+    """延迟加载BRISQUE模块"""
+    global _brisque
+    if _brisque is None:
+        try:
+            from .brisque import BRISQUE
+            _brisque = BRISQUE()
+        except ImportError:
+            logger.warning("BRISQUE模块不可用")
+            _brisque = None
+    return _brisque
 
 
 class AIQualityScorer:
@@ -43,6 +65,7 @@ class AIQualityScorer:
                 - color_score: 色彩 (0-100)
                 - overall: 综合评分 (0-100)
                 - grade: 等级 (A/B/C/D)
+                - brisque_score: BRISQUE评分 (可选)
         """
         logger.info(f"AI质量评分: {image_path}")
         
@@ -71,6 +94,13 @@ class AIQualityScorer:
             color * weights['color']
         )
         
+        # BRISQUE评分 (如果可用)
+        brisque_result = self._get_brisque_score(img)
+        if brisque_result:
+            # 融合传统评分和BRISQUE评分
+            # BRISQUE权重: 30%
+            overall = overall * 0.7 + brisque_result['brisque_score'] * 0.3
+        
         # 转换为MOS格式 (1-5)
         mos = 1 + 4 * (overall / 100)
         
@@ -84,7 +114,7 @@ class AIQualityScorer:
         else:
             grade = 'D'
         
-        return {
+        result = {
             'mos_predicted': round(mos, 2),
             'mos_description': self._mos_to_description(mos),
             'sharpness_score': round(sharpness, 1),
@@ -100,6 +130,31 @@ class AIQualityScorer:
                 'color': self._get_dimension_comment('color', color),
             }
         }
+        
+        # 添加BRISQUE结果
+        if brisque_result:
+            result['brisque'] = brisque_result
+        
+        return result
+    
+    def _get_brisque_score(self, img: np.ndarray) -> Optional[Dict[str, Any]]:
+        """获取BRISQUE评分"""
+        brisque = _get_brisque()
+        if brisque is None:
+            return None
+        
+        try:
+            result = brisque.assess(img)
+            return {
+                'brisque_score': result['brisque_score'],
+                'quality_level': result['quality_level'],
+                'naturalness': result['naturalness']['naturalness_score'],
+                'mscn_kurtosis': result['details']['mscn_kurtosis'],
+                'note': '基于自然场景统计的BRISQUE评分'
+            }
+        except Exception as e:
+            logger.warning(f"BRISQUE评估失败: {e}")
+            return None
     
     def _assess_sharpness(self, img) -> float:
         """评估清晰度"""
