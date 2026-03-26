@@ -17,6 +17,8 @@ from src.tools.ai_quality_scorer import AIQualityScorer
 from src.tools.tuning_knowledge import ISPTuningKnowledge
 from src.tools.pipeline_visualizer import ISPPipelineVisualizer
 from src.tools.raw_processor import RawProcessor
+from src.tools.batch_processor import BatchProcessor
+from src.tools.enhanced_qa import EnhancedQAEngine
 
 
 def cmd_analyze(args):
@@ -179,6 +181,85 @@ def cmd_raw(args):
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+def cmd_batch(args):
+    """批量处理"""
+    processor = BatchProcessor()
+    
+    if args.scan:
+        # 扫描目录
+        files = processor.scan_directory(args.directory)
+        print(f"📁 扫描到 {len(files)} 个文件:")
+        for f in files[:20]:
+            print(f"   {f}")
+        if len(files) > 20:
+            print(f"   ... 还有 {len(files) - 20} 个文件")
+    elif args.report:
+        # 先分析再生成报告
+        image_paths = processor.scan_directory(args.directory)
+        if not image_paths:
+            print("❌ 未找到图像文件")
+            return
+        result = processor.analyze_batch(image_paths)
+        import os
+        output_path = os.path.join(args.directory, f'batch_report.{args.format or "json"}')
+        report_path = processor.generate_report(result, output_path, format=args.format or 'json')
+        print(f"📄 报告已生成: {report_path}")
+    else:
+        # 批量分析
+        image_paths = processor.scan_directory(args.directory)
+        if not image_paths:
+            print("❌ 未找到图像文件")
+            return
+        result = processor.analyze_batch(image_paths)
+        print("=" * 50)
+        print(f"📊 批量分析完成")
+        print("=" * 50)
+        print(f"✅ 成功: {result.success}")
+        print(f"❌ 失败: {result.failed}")
+        if result.results:
+            print("\n📋 结果摘要:")
+            for r in result.results[:5]:
+                print(f"   {r.get('file', r.get('path', 'unknown'))}: score={r.get('score', 'N/A')}")
+
+
+def cmd_qa(args):
+    """增强问答"""
+    qa = EnhancedQAEngine()
+    
+    if args.interactive:
+        # 交互式问答
+        print("\n" + "=" * 50)
+        print("  ISP-Agent 增强问答")
+        print("  输入 'quit' 退出")
+        print("=" * 50 + "\n")
+        
+        while True:
+            try:
+                question = input("问题> ").strip()
+                if not question:
+                    continue
+                if question.lower() in ['quit', 'exit', 'q']:
+                    print("再见！")
+                    break
+                
+                result = qa.ask(question)
+                print(f"\n💬 类型: {result.get('query_type', 'general')}")
+                print(f"\n🤖 回答:\n{result.get('answer', '')}")
+                if result.get('suggestions'):
+                    print(f"\n💡 建议: {result['suggestions']}")
+                print()
+            except KeyboardInterrupt:
+                print("\n\n再见！")
+                break
+    else:
+        # 单次问答
+        result = qa.ask(args.question)
+        print(f"类型: {result.get('query_type', 'general')}")
+        print(f"\n{result.get('answer', '')}")
+        if result.get('suggestions'):
+            print(f"\n💡 建议: {result['suggestions']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='ISP-Agent 命令行工具')
     subparsers = parser.add_subparsers(dest='command', help='命令')
@@ -230,6 +311,21 @@ def main():
     p_raw.add_argument('--to-tiff', action='store_true', help='转换为TIFF')
     p_raw.add_argument('--output', help='输出路径')
     p_raw.set_defaults(func=cmd_raw)
+    
+    # batch 命令
+    p_batch = subparsers.add_parser('batch', help='批量处理')
+    p_batch.add_argument('directory', help='目录路径')
+    p_batch.add_argument('--scan', action='store_true', help='仅扫描文件')
+    p_batch.add_argument('--report', action='store_true', help='生成报告')
+    p_batch.add_argument('--format', choices=['json', 'html', 'csv'], help='报告格式')
+    p_batch.add_argument('--recursive', action='store_true', default=False, help='递归扫描子目录')
+    p_batch.set_defaults(func=cmd_batch)
+    
+    # qa 命令
+    p_qa = subparsers.add_parser('qa', help='ISP增强问答')
+    p_qa.add_argument('--interactive', '-i', action='store_true', help='交互式问答')
+    p_qa.add_argument('question', nargs='?', help='问题内容')
+    p_qa.set_defaults(func=cmd_qa)
     
     args = parser.parse_args()
     
