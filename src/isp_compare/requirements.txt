@@ -1,0 +1,18 @@
+# ISP Compare Requirements
+# Core dependencies
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Optional: For PDF generation
+# reportlab>=4.0.0
+
+# Optional: For advanced metrics (install if needed)
+# scikit-image>=0.21.0  # For SSIM
+# pip install brisque    # For BRISQUE
+
+# Optional: For deep learning based metrics
+# pip install lpips torch
+
+# Development
+pytest>=7.4.0
+pytest-cov>=4.1.0
