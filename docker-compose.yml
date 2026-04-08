@@ -7,15 +7,35 @@ services:
     container_name: isp-agent
     ports:
       - "5000:5000"
+      - "8080:8080"
     volumes:
       - ./outputs:/app/outputs
       - ./logs:/app/logs
       - ./test_data:/app/test_data
+      - ./data:/app/data
     environment:
       - FLASK_ENV=development
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - MPLBACKEND=Agg
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
     restart: unless-stopped
-    
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   # CLI版本(不使用端口)
   isp-agent-cli:
     build: .
@@ -24,6 +44,39 @@ services:
     volumes:
       - ./inputs:/app/inputs
       - ./outputs:/app/outputs
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
     command: python -m src.cli_enhanced --help
     profiles:
       - cli
+
+  # GPU加速版本
+  isp-agent-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: isp-agent:gpu
+    container_name: isp-agent-gpu
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - MPLBACKEND=Agg
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - gpu

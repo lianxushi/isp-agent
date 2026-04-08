@@ -11,9 +11,13 @@ pillow>=10.0.0
 rawpy>=0.18.0
 exifread>=3.0.0
 scipy>=1.11.0
+matplotlib>=3.7.0
 
 # Video Processing
 moviepy>=1.0.3
+
+# Report Generation
+reportlab>=4.0.0
 
 # Web API
 flask>=3.0.0
