@@ -19,6 +19,7 @@ logger = setup_logger('isp-agent.ai_quality')
 
 # 延迟导入BRISQUE，避免循环依赖
 _brisque = None
+_niqe = None
 
 
 def _get_brisque():
@@ -32,6 +33,19 @@ def _get_brisque():
             logger.warning("BRISQUE模块不可用")
             _brisque = None
     return _brisque
+
+
+def _get_niqe():
+    """延迟加载NIQE模块"""
+    global _niqe
+    if _niqe is None:
+        try:
+            from .niqe import NIQE
+            _niqe = NIQE()
+        except ImportError:
+            logger.warning("NIQE模块不可用")
+            _niqe = None
+    return _niqe
 
 
 class AIQualityScorer:
@@ -64,8 +78,10 @@ class AIQualityScorer:
                 - artifact_score: 伪影 (0-100)
                 - color_score: 色彩 (0-100)
                 - overall: 综合评分 (0-100)
+                - overall_score: 综合质量评分 (0-100, 融合启发式+BRISQUE+NIQE)
                 - grade: 等级 (A/B/C/D)
-                - brisque_score: BRISQUE评分 (可选)
+                - brisque_score: BRISQUE评分 (可选, 0-100)
+                - niqe_score: NIQE评分 (可选, 0-100)
         """
         logger.info(f"AI质量评分: {image_path}")
         
@@ -87,7 +103,7 @@ class AIQualityScorer:
             'color': 0.20,
         }
         
-        overall = (
+        heuristic_score = (
             sharpness * weights['sharpness'] +
             noise * weights['noise'] +
             artifact * weights['artifact'] +
@@ -96,20 +112,42 @@ class AIQualityScorer:
         
         # BRISQUE评分 (如果可用)
         brisque_result = self._get_brisque_score(img)
-        if brisque_result:
-            # 融合传统评分和BRISQUE评分
-            # BRISQUE权重: 30%
-            overall = overall * 0.7 + brisque_result['brisque_score'] * 0.3
+        brisque_score_val = brisque_result['brisque_score'] if brisque_result else None
+        
+        # NIQE评分 (如果可用)
+        niqe_result = self._get_niqe_score(img)
+        niqe_score_val = niqe_result['niqe_score'] if niqe_result else None
+        
+        # 综合质量评分：融合启发式 + BRISQUE + NIQE
+        # 权重分配：启发式 50%, BRISQUE 25%, NIQE 25%
+        if brisque_score_val is not None and niqe_score_val is not None:
+            overall_score = (
+                heuristic_score * 0.50 +
+                brisque_score_val * 0.25 +
+                niqe_score_val * 0.25
+            )
+        elif brisque_score_val is not None:
+            overall_score = (
+                heuristic_score * 0.70 +
+                brisque_score_val * 0.30
+            )
+        elif niqe_score_val is not None:
+            overall_score = (
+                heuristic_score * 0.70 +
+                niqe_score_val * 0.30
+            )
+        else:
+            overall_score = heuristic_score
         
         # 转换为MOS格式 (1-5)
-        mos = 1 + 4 * (overall / 100)
+        mos = 1 + 4 * (overall_score / 100)
         
         # 等级
-        if overall >= 90:
+        if overall_score >= 90:
             grade = 'A'
-        elif overall >= 75:
+        elif overall_score >= 75:
             grade = 'B'
-        elif overall >= 60:
+        elif overall_score >= 60:
             grade = 'C'
         else:
             grade = 'D'
@@ -121,8 +159,11 @@ class AIQualityScorer:
             'noise_score': round(noise, 1),
             'artifact_score': round(artifact, 1),
             'color_score': round(color, 1),
-            'overall': round(overall, 1),
+            'overall': round(overall_score, 1),
+            'overall_score': round(overall_score, 1),
             'grade': grade,
+            'brisque_score': round(brisque_score_val, 2) if brisque_score_val is not None else None,
+            'niqe_score': round(niqe_score_val, 2) if niqe_score_val is not None else None,
             'details': {
                 'sharpness': self._get_dimension_comment('sharpness', sharpness),
                 'noise': self._get_dimension_comment('noise', noise),
@@ -131,9 +172,11 @@ class AIQualityScorer:
             }
         }
         
-        # 添加BRISQUE结果
+        # 添加BRISQUE和NIQE详细结果
         if brisque_result:
             result['brisque'] = brisque_result
+        if niqe_result:
+            result['niqe'] = niqe_result
         
         return result
     
@@ -154,6 +197,25 @@ class AIQualityScorer:
             }
         except Exception as e:
             logger.warning(f"BRISQUE评估失败: {e}")
+            return None
+    
+    def _get_niqe_score(self, img: np.ndarray) -> Optional[Dict[str, Any]]:
+        """获取NIQE评分"""
+        niqe = _get_niqe()
+        if niqe is None:
+            return None
+        
+        try:
+            result = niqe.assess(img)
+            return {
+                'niqe_score': result['niqe_score'],
+                'quality_level': result['quality_level'],
+                'naturalness': result['naturalness']['naturalness_score'],
+                'mvg_distance': result['details']['mvg_distance'],
+                'note': '基于多元高斯模型的NIQE评分'
+            }
+        except Exception as e:
+            logger.warning(f"NIQE评估失败: {e}")
             return None
     
     def _assess_sharpness(self, img) -> float:

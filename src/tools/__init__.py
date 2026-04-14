@@ -6,7 +6,11 @@ from .automotive_analyzer import AutomotiveQualityAnalyzer, analyze_automotive_q
 from .ai_quality_scorer import AIQualityScorer, score_image_quality
 from .tuning_knowledge import ISPTuningKnowledge, create_tuning_knowledge
 from .pipeline_visualizer import ISPPipelineVisualizer, create_pipeline_visualizer
-from .raw_processor import RawProcessor, process_raw, get_raw_info
+from .raw_processor import (
+    RawProcessor, process_raw, get_raw_info,
+    synthesize_hdr_exposures, align_exposures,
+    hdr_synthesize, align_images
+)
 
 __all__ = [
     'ImageAnalyzer',
@@ -30,4 +34,9 @@ __all__ = [
     'RawProcessor',
     'process_raw',
     'get_raw_info',
+    # Phase 2.2: HDR
+    'synthesize_hdr_exposures',
+    'align_exposures',
+    'hdr_synthesize',
+    'align_images',
 ]
