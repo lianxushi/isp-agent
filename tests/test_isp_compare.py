@@ -10,6 +10,7 @@ import sys
 import pytest
 import tempfile
 import numpy as np
+import cv2
 from pathlib import Path
 
 # Add src to path
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from isp_compare.core.comp12_parser import Comp12Parser, Comp12Config, Comp12ParseError
 from isp_compare.core.cmodel_wrapper import CModelISP, CModelResult, CModelError
 from isp_compare.core.metrics import ImageMetrics, MetricsResult
-from isp_compare.core.comparison import ISPComparator, ComparisonConfig
+from isp_compare.core.comparison import ISPComparator, ComparisonConfig, ComparisonResult
 from isp_compare.tools.perception_model import PerceptionModelInterface, DetectionResult
 from isp_compare.reports.pdf_generator import PDFReportGenerator
 
